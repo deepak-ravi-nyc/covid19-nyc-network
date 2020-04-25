@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.offline as py
 import plotly.graph_objs as go
 import plotly.figure_factory as ff
+import plotly.express as px
 
 #%% LOAD DATA
 
@@ -58,12 +59,20 @@ def plot_by_date(df, title, cols):
 age_deaths_df = age_df[age_df['type'] == 'deaths']
  
 plot_by_date(df = age_deaths_df,
-              title = 'deaths_comapred_by_age',
+              title = 'deaths_compared_by_age',
               cols = ['ages_0_17',
                       'ages_18_44',
                       'ages_45_64',
                       'ages_65_74',
                       'ages_75_older'])
+
+
+#%% PLOT graph of zcta
+zcta_testing = zcta_testing[zcta_testing['zcta'] < 12000]
+fig = px.line(zcta_testing, x="datetime", y="positive", color= "zcta", title='Positive cases by zcta')
+py.plot(fig)
+
+#fig.show()
 
 
 
