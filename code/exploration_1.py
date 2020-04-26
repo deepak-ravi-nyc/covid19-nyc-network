@@ -67,10 +67,7 @@ plot_by_date(df = age_deaths_df,
                       'ages_75_older'])
 
 
-#%% PLOT graph of zcta
-zcta_testing = zcta_testing[zcta_testing['zcta'] < 12000]
-fig = px.line(zcta_testing, x="datetime", y="positive", color= "zcta", title='Positive cases by zcta')
-py.plot(fig)
+
 
 #fig.show()
 

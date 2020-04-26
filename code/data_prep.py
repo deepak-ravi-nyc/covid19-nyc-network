@@ -24,14 +24,14 @@ def read_and_date(path):
     df['datetime'] = pd.to_datetime(df['timestamp'])
     return df
 
-age_df = read_and_date(data_dir + 'age.csv')
-bed_df = read_and_date(data_dir + 'beds.csv')
+#age_df = read_and_date(data_dir + 'age.csv')
+#bed_df = read_and_date(data_dir + 'beds.csv')
 zc_tests_df = read_and_date(data_dir + 'zcta.csv')
-tot_df = read_and_date(data_dir + 'nyc.csv')
-hosp_df = read_and_date(data_dir + 'hospitalized.csv')
-gender_df = read_and_date(data_dir + 'gender.csv')
-borough_df = read_and_date(data_dir + 'borough.csv')
-state_df = read_and_date(data_dir + 'state.csv')
+#tot_df = read_and_date(data_dir + 'nyc.csv')
+#hosp_df = read_and_date(data_dir + 'hospitalized.csv')
+#gender_df = read_and_date(data_dir + 'gender.csv')
+#borough_df = read_and_date(data_dir + 'borough.csv')
+#state_df = read_and_date(data_dir + 'state.csv')
 
 
 
@@ -91,6 +91,58 @@ zcta_tests_df = zc_tests_df.merge(census_zc_subset, on = 'zcta', how = 'left')
 
 
 #%% Load Mobility Data
+
+turns = pd.read_csv(data_dir +'mta_turnstile_200418.csv')
+turns['ENTRIES'] = turns['ENTRIES'].astype('int')
+turns.rename(columns={'EXITS                                                               ':'EXITS'}, inplace=True)
+turns['EXITS'] = turns['EXITS'].astype('int')
+                                                      
+#step 1 subway inflows / outflows from each station
+turns['ENTRIES'] = turns.groupby(['C/A','STATION','UNIT','SCP'])['ENTRIES'].diff()
+turns['EXITS'] = turns.groupby(['C/A','STATION','UNIT','SCP'])['EXITS'].diff()
+turns = turns.groupby(['STATION','DATE', 'LINENAME']).agg('sum')
+turns = turns.groupby(['STATION', 'LINENAME']).agg('mean')
+
+
+#step 2 join stations with neighborhoods by long/lat
+entrances = pd.read_csv(data_dir +'DOITT_SUBWAY_STATION_01_13SEPT2010.csv')
+entrances['STATION1'] = entrances['NAME'].str.upper()
+#entrances = entrances.groupby('Station Name').first()
+
+
+import d6tjoin.top1
+import d6tjoin.utils
+
+#d6tjoin.utils.PreJoin([entrances,turns],['STATION']).stats_prejoin()
+
+#entrances['STATION'] = entrances.index
+turns['STATION1'] = turns.index
+result = d6tjoin.top1.MergeTop1(entrances,turns,fuzzy_left_on=['STATION1'],fuzzy_right_on=['STATION1']).merge()
+
+
+#step 3 construct ct x ct matrix 
+
+#step 4 randomly distribute subway inflow and outflow
+
+#step 5 distribute additional minor inflow outflow into adjacent neighborhoods
+
+
+
+
+
+
+
+#our_goal = ct x ct matrix of inflow and outflow
+
+#inflow / outflow as a spatial measure between neighborhoods some spatial function of long and lat
+#inflow outflow from subway line evenly/randomly distrbuted along all subway neghiborhoods
+
+
+
+
+
+
+
 
 
 
