@@ -5,7 +5,7 @@
 
 # Result Files and Plots #
 ##########################
-*.html
+# *.html
 *.tsv
 
 
