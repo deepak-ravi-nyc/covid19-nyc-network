@@ -112,11 +112,16 @@ entrances['Y'] = entrances['the_geom'].str.split(' ').str[2].str[:-1].astype('do
 #entrances = entrances.groupby('Station Name').first()
 entrances = entrances[['STATION','X','Y','LINE']].sort_values(by = ['STATION'])
 '''
+'''
 data_dir = '../data/'
-joined = pd.read_csv(data_dir +'station_location_joined.csv')
-geo = pd.read_csv(data_dir +'station_locations_final.csv')
+joined = pd.read_csv(data_dir +'station_locations_joined.csv')
+geo = pd.read_csv(data_dir +'station_location_final.csv')
+'''
 
-
+#stations = joined.merge(geo[['STATION','LINE','GEOID']], on = ['STATION','LINE'], how  = 'left')
+data_dir = '../data/'
+stations = pd.read_csv(data_dir +'stations_final.csv')
+#stations.to_csv('../data/stations_final.csv')
 
 
 
@@ -172,51 +177,67 @@ entrances = entrances.merge(geoids, on = ['X', 'Y'])
 
 
 
+#%% Create Master DF
+#Aggregate the Census Tract data by ZCTA and then join columns as needed
+census_zc_subset = master_df[['zcta', 'POPPT']].groupby('zcta').agg('sum')
+zcta_tests_df = zc_tests_df.merge(census_zc_subset, on = 'zcta', how = 'left')
+zcta_tests_df = zcta_tests_df[zcta_tests_df['zcta'] < 12000] #filter out NaN data
 
 
+zcta_tests_df['percent_positive'] = zcta_tests_df['positive']/zcta_tests_df['total']*100
+zcta_tests_df['percent_tested'] = zcta_tests_df['total']/zcta_tests_df['POPPT']*100
 
-#step 3 construct ct x ct matrix 
+zcta_tests_df['new_positive'] = zcta_tests_df.groupby('zcta')['positive'].diff()
+zcta_tests_df['new_test'] = zcta_tests_df.groupby('zcta')['total'].diff()
+
+zcta_tests_df['percent_new_positive'] = zcta_tests_df['new_positive']/zcta_tests_df['new_test']*100
+zcta_tests_df['percent_new_tested'] = zcta_tests_df['new_test']/zcta_tests_df['POPPT']*100
+
+tests_grouped = zcta_tests_df.groupby('zcta').agg({'positive':'first', 'percent_new_positive':'mean', 'new_positive':'mean'})
+
+
 #organize_census tracts by ascending order, give index
-
 master_df_2 = master_df[['zcta', 'census_tract', 'GEOID', 'E_TOTPOP', 'LOCATION']] 
-master_df_2 = master_df_2.remove_duplicates('GEOID')
+
+#left join zcta
+temp_master = master_df_2[['GEOID','zcta']].merge(tests_grouped, how = 'left', on = 'zcta')
+
+#cases data groupy zcta total / count of instances #divide out the multiple cts per zctasmaster
+temp_master = temp_master.groupby('zcta').agg({'positive':'sum', 'GEOID':'count', 'percent_new_positive':'mean', 'new_positive':'sum'}) 
+temp_master.rename(columns={'GEOID':'GEOID_count'}, inplace=True)
+#sum / count = individual ct values
+temp_master['ct_first_positives'] = temp_master['positive']/temp_master['GEOID_count']
+temp_master['ct_avg_new_positives'] = temp_master['new_positive']/temp_master['GEOID_count']
+temp_master['ct_avg_new_positives_percent'] = temp_master['percent_new_positive']
+
+#rejoin left with master_df
+temp_master = master_df_2[['GEOID','zcta']].merge(temp_master, how = 'left', on = 'zcta')
+
+#group by ct for sum rates
+temp_master = temp_master.groupby('GEOID').agg({'ct_avg_new_positives':'mean',
+                                                'ct_avg_new_positives_percent':'mean',
+                                                'ct_first_positives':'sum'})
+
+#join this with the main master
+master_df_2 = master_df_2.merge(temp_master, how = 'left', on='GEOID')
+
+
+#master_df_2 = master_df_2.drop_duplicates('GEOID') #There duplkicates becuase of zcta...
 master_df_2['old_index'] = master_df_2.index
 master_df_2 = master_df_2.sort_values(by = ['GEOID']).reset_index(drop = True)
 master_df_2['numpy_index'] = master_df_2.index
 
 #join input/output only subway for each community, 0 if no station
 #divide by total input/output in the system to get distribution
-['sub_input','sub_output',] #'total_input','total_output']
+
+master_df_2 = master_df_2.merge(stations[['t_station','t_entries','t_exits','GEOID']], how = 'left', on='GEOID')
+
+#fill nans with 0s
+master_df_2[['t_entries', 't_exits']] = master_df_2[['t_entries', 't_exits']].fillna(value=0)
+master_df_2.rename(columns={'t_entries':'sub_output', 't_exits':'sub_input'}, inplace=True)#entries into the subway are out of the neighborhood
 master_df_2['sub_input_prop'] = master_df_2['sub_input']/master_df_2['sub_input'].sum()#proportion of total subwy inputs
 master_df_2['sub_output_prop'] = master_df_2['sub_output']/master_df_2['sub_output'].sum()#proportion of total subway output
 
-
-import numpy as np
-#build Origin-Destination Matrix where indexes correspond to the above census index
-count_tracts = len(master_df_2)
-
-
-
-#step 4 randomly distribute subway inflow and outflow
-subway_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)
-for origin in range(count_tracts):
-    
-    #assign output*sub_input_prop to get a vector to replace row
-    output = master_df_2.iloc[origin]['sub_output']
-    proportional_input = master_df_2['sub_input_prop']*output #Outflow into tother inflow
-    new_row = proportional_input.to_numpy()
-    
-    #set row
-    subway_OD[origin,:] = new_row
-    
-#halve the subway data becuase we are going to do twice a day
-#subway_OD = subway_OD*.5
-    
-    
-
-#step 5 distribute additional minor inflow outflow into adjacent neighborhoods
-adjacent_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)       
-adjacency_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float) 
 
 import geopandas as gp
 
@@ -235,17 +256,52 @@ for index, row in tqdm(shape_df.iterrows()):
     # add names of neighbors as NEIGHBORS value
     shape_df.at[index, "NEIGHBORS"] = ", ".join(neighbors)
     
-master_df_2 = master_df_2.merge(shape_df[['geometry','GEOID','NEIGHBORS']], on = GEOID how = 'left')
+shape_df['GEOID'] = shape_df['GEOID'].astype('int')
+master_df_2 = master_df_2.merge(shape_df[['geometry','GEOID','NEIGHBORS']], on = 'GEOID', how = 'left')
+
+master_df_2 = master_df_2.drop_duplicates('GEOID')
+
+master_df_2.to_pickle('master_df.pickle')
+
+#%% Orgin Destination Matrix
+
+#step 3 construct ct x ct matrix 
+
+import numpy as np
+#build Origin-Destination Matrix where indexes correspond to the above census index
+count_tracts = len(master_df_2)
+
+#step 4 randomly distribute subway inflow and outflow
+subway_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)
+for origin in range(count_tracts):
     
+    #assign output*sub_input_prop to get a vector to replace row
+    output = master_df_2.iloc[origin]['sub_output']
+    proportional_input = master_df_2['sub_input_prop']*output #Outflow into tother inflow
+    new_row = proportional_input.to_numpy()
+    
+    #set row
+    subway_OD[origin,:] = new_row
+    
+#halve the subway data becuase we are going to do twice a day
+#subway_OD = subway_OD*.5
+
+#%% 
+import numpy as np
+import random
+count_tracts = len(master_df_2)
+
+#step 5 distribute additional minor inflow outflow into adjacent neighborhoods
+adjacent_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)       
+adjacency = np.empty(shape = (count_tracts,count_tracts), dtype=float) 
     
 
-import random
-for origin in range(count_tracts):
-    for destination in range(count_tracts):
+for origin in range(len(master_df_2)):
+    for destination in range(len(master_df_2)):
         
         neighbors = master_df_2.iloc[origin]['NEIGHBORS']
-        dest_GEOID = master_df_2.iloc[origin]['GEOID']
-        neighbors_yes_no = dest_GEOID in neighbors
+        dest_GEOID = master_df_2.iloc[destination]['GEOID']
+        neighbors_yes_no = str(dest_GEOID) in neighbors
         
         if neighbors_yes_no:
             adjacency[origin,destination] = 1
@@ -263,23 +319,22 @@ for origin in range(count_tracts):
         
 
 
-
+#%%
 noise_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)
-
-random boi
-randomly picks two tracts
-applies random muliper to avg population
-sets flow
-
-
                    
 #get aggregate output, assign valu to each element in row 
 def randomize(noise_OD, master_df):
+    #random boi
+    #randomly picks two tracts
+    #applies random muliper to avg population
+    #sets flow
+
+    #in future could weight by the distance btwn neighborhoods
         
     count_tracts = len(master_df)
         
-    origin = random.uniform(0,count_tracts)
-    destination = random.uniform(0,count_tracts)
+    origin = int(random.uniform(0,count_tracts))
+    destination = int(random.uniform(0,count_tracts))
         
         
     o_pop = master_df.iloc[origin]['E_TOTPOP']
@@ -304,7 +359,6 @@ def randomize(noise_OD, master_df):
 for i in tqdm(range(3000)):
     randomize(noise_OD, master_df_2)
         
-    
 
 #add all components of the flow
 full_OD = subway_OD + adjacent_OD + noise_OD
@@ -323,12 +377,13 @@ OD = half_OD + half_OD.transpose()
 #%% JOIN CASE DATA
 
 
-df = pd.Series(np.random.gamma(2, 4, len(master_df)), name = 'R0').to_frame()
-df.sort_values([''])
-master_df_2['random_R0'] = pd.Series(np.random.gamma(2, 4, len(master_df)))
+df = pd.Series(np.random.gamma(2, 4, len(master_df_2)), name = 'R0').to_frame()
+df = df.sort_values(['random_R0'])
 
-april 8 case data
-percent 8 
+master_df_2.sort_values(['ct_avg_new_positives'])
+master_df_2 = pd.concat([master_df_2,df], axis = 1, ignore_index = True)
+master_df_2 = master_df_2.sortby index
+
 
 
 #%% Store necessary tables
