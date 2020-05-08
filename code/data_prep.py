@@ -13,6 +13,12 @@ import plotly.offline as py
 import plotly.graph_objs as go
 import plotly.figure_factory as ff
 
+import numpy as np
+import random
+import urllib
+import json
+import time
+from tqdm import tqdm
 
 
 #%% Load NYC Case Data
@@ -269,7 +275,7 @@ master_df_2.to_pickle('master_df.pickle')
 
 import numpy as np
 #build Origin-Destination Matrix where indexes correspond to the above census index
-count_tracts = len(master_df_2)
+count_tracts = 2157
 
 #step 4 randomly distribute subway inflow and outflow
 subway_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)
@@ -320,6 +326,8 @@ for origin in range(len(master_df_2)):
 
 
 #%%
+count_tracts = 2157
+
 noise_OD = np.empty(shape = (count_tracts,count_tracts), dtype=float)
                    
 #get aggregate output, assign valu to each element in row 
@@ -331,10 +339,10 @@ def randomize(noise_OD, master_df):
 
     #in future could weight by the distance btwn neighborhoods
         
-    count_tracts = len(master_df)
+    #count_tracts = len(master_df)
         
-    origin = int(random.uniform(0,count_tracts))
-    destination = int(random.uniform(0,count_tracts))
+    origin = int(random.randint(0,count_tracts-1))
+    destination = int(random.randint(0,count_tracts-1))
         
         
     o_pop = master_df.iloc[origin]['E_TOTPOP']
@@ -344,9 +352,12 @@ def randomize(noise_OD, master_df):
     avg_pop = np.mean([o_pop,d_pop])
     mult = random.uniform(.05, .1)
     d = avg_pop*mult
+    
+    #print(origin)
+    #print(destination)
         
-    noise_OD[origin][destination] += d
-    noise_OD[destination][origin] -= d
+    noise_OD[origin, destination] = noise_OD[origin, destination] + d
+    noise_OD[destination, origin] = noise_OD[origin, destination] - d
 
         
     #noise_OD[x1][y1] += d
@@ -356,9 +367,10 @@ def randomize(noise_OD, master_df):
     
     return
     
-for i in tqdm(range(3000)):
+for i in tqdm(range(300000)):
     randomize(noise_OD, master_df_2)
         
+#%% Components of OD
 
 #add all components of the flow
 full_OD = subway_OD + adjacent_OD + noise_OD
@@ -376,14 +388,14 @@ OD = half_OD + half_OD.transpose()
 
 #%% JOIN CASE DATA
 
-
-df = pd.Series(np.random.gamma(2, 4, len(master_df_2)), name = 'R0').to_frame()
+#df = pd.Series(np.random.gamma(2, 4, len(master_df_2)), name = 'random_R0').to_frame()
+df = pd.Series(np.random.uniform(2, 4, len(master_df_2)), name = 'random_R0').to_frame()
 df = df.sort_values(['random_R0'])
+short_df = master_df[['GEOID','ct_avg_new_positives']].sort_values(['ct_avg_new_positives'])
+short_df = pd.concat([short_df, df], axis = 1, ignore_index = True)
+short_df.columns = ['GEOID', 'ct_avg_new_positives', 'random_R0']
 
-master_df_2.sort_values(['ct_avg_new_positives'])
-master_df_2 = pd.concat([master_df_2,df], axis = 1, ignore_index = True)
-master_df_2 = master_df_2.sortby index
-
+master_df = master_df.merge(short_df, on = ['GEOID', 'ct_avg_new_positives'])
 
 
 #%% Store necessary tables
