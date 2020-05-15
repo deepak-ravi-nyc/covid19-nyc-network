@@ -49,6 +49,40 @@ census_df = pd.read_csv(data_dir + 'svi_index_NewYork.csv')
 #filter out NYC
 census_df = census_df[census_df['COUNTY'].isin(['Kings','Queens','Bronx','New York','Richmond'])] 
 
+#%%
+
+ct_to_zcta_df = pd.read_csv(data_dir + 'zcta_tract_rel_10.csv')
+ct_to_zcta_df = ct_to_zcta_df[(ct_to_zcta_df['STATE'] == 36) & ct_to_zcta_df['COUNTY'].isin([5,81,61,85,47])]
+
+ct_to_zcta_df.rename(columns={'ZCTA5':'ZCTA'}, inplace=True)
+ct_to_zcta_df.rename(columns={'TRACT':'census_tract'}, inplace=True)
+
+geoid_count = ct_to_zcta_df.groupby('ZCTA').count()[['GEOID']]
+geoid_count.rename(columns={'GEOID':'GEOID_count'}, inplace=True)
+
+geoid_dict = ct_to_zcta_df[['GEOID','ZCTA']].merge(geoid_count, right_index = True, left_on = 'ZCTA', how = 'left')
+geoid_dict['zcta_split'] = 1/geoid_dict['GEOID_count']
+
+#Then
+
+def split_zcta_to_geoid(geoid_dict,zcta_data, data_col):
+    
+    df = geoid_dict.copy()
+    df.merge(zcta_data, how = left, on = 'ZCTA')
+    
+    df[data_col] = geoid_dict[data_col]*geoid_dict['zcta_split'] 
+    df = df.groupby('GEOID').sum()
+    
+    return_df
+    
+    
+    
+
+
+
+
+
+
 
 
 #%% Load NTA-CTA-ZCTA-ZC Relationships
